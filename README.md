@@ -28,6 +28,10 @@ Modify the SSID and Wifi Password in examples/hackerpet_remote_sensor/hackerpet_
 
 Compile the example from examples/hackerpet_remote_sensor and install it onto the ESP32
 
+A video of the remote button in action can be found here (https://youtu.be/Dw1Pwbul5oc)
+
+
+
 ## How it works
 
 When both devices are connected to the network the esp32 will continuously announce itself.

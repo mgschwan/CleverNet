@@ -40,7 +40,7 @@ As soon as the hub discovers those messages it will try to connect to the esp32 
 
 ## ATTENTION
 
-**This is only a proof of concept demonstation and not a full library yet.**
+**This is only a proof of concept demonstration and not a full library yet.**
 
 ## Todo
 

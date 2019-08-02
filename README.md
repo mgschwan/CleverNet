@@ -6,7 +6,7 @@
 A library to simplify the communication between the cleverpet hub and external ESP32 based sensors
 
 
-## Prerequesits
+## Prerequisits
 
 * particle-cli
 * arduino ide (with ESP32 board support installed)

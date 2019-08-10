@@ -36,6 +36,8 @@ unsigned long last_timestamp;
 unsigned long last_dispense;
 unsigned long last_button_check;
 
+CleverNet clevernet;
+
 
 // Use the IP address and port where the receiver is listening
 PapertrailLogHandler papertailHandler("192.168.0.255", 4888, "ControlPet");
@@ -87,22 +89,20 @@ void reinitializeHub()
 
 }
 
-const String cmd_buttons = String("buttons");
-const String cmd_shout = String("shout");
 
 void commandCallback(String &msg, IPAddress &remote)
 {
-    if (msg.indexOf(cmd_buttons) == 1)
+    if (msg.indexOf(clevernet_cmd_buttons) == 1)
     {
         String button_bits = clevernet_findNthSubstring(msg, String(":"),0);
         hubButtonPressed = button_bits.toInt();
     } 
-    if (msg.indexOf(cmd_shout) == 1)
+    /*if (msg.indexOf(cmd_shout) == 1)
     {
         String name = clevernet_findNthSubstring(msg, String(":"),0);
         Log.info (name + " is at address " + String(remote));
         clevernet_connectTCPClient(remote);
-    }
+    }*/
 
 }
 
@@ -111,7 +111,7 @@ void checkButtons()
     if (millis() > last_button_check + 50)
     {
         last_button_check = millis();
-        clevernet_sendString(String("@buttons;"));
+        clevernet.sendString("cleverpet_button", "@buttons;");
     }
 }
 
@@ -153,6 +153,7 @@ void gameLoop()
 void loop()
 {
     static String message;
+    static String node_name;
     static IPAddress remote;
     
     // advance the device layer state machine, but with 20 millisecond max time spent per loop cycle
@@ -194,12 +195,9 @@ void loop()
     {
         clevernet_MDNS_loop();
         gameLoop();
-    
-
-        if (clevernet_recvString(message, remote))
+        if (clevernet.process(message, node_name, remote))
         {
             commandCallback(message, remote);
-            //Log.info(String("Message Received: ")+message);
         }
     }
 }

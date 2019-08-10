@@ -3,33 +3,7 @@
 
 MDNS clevernet_mdns;
 
-UDP clevernet_Udp;
-int clevernet_broadcastPort = 4888;
-IPAddress clevernet_broadcastAddress;    
-bool clevernet_udp_begin = false;
-
-int device_announce_interval = 1000;
-long last_device_announcement;
-
 const char *deviceName = "cleverpet";
-
-#define MESSAGE_MAX_LEN 512
-
-#define SEND_TIMEOUT 5000
-
-#define RECV_STATE_NEW 0
-#define RECV_STATE_ONGOING 1
-#define RECV_STATE_ERROR 2
-#define RECV_STATE_FINISHED 3
-
-int udp_recv_buffer_idx = 0;
-int udp_recv_state = RECV_STATE_NEW;
-char udp_recv_buffer[MESSAGE_MAX_LEN+1];
-
-
-int tcp_recv_buffer_idx = 0;
-int tcp_recv_state = RECV_STATE_NEW;
-char tcp_recv_buffer[MESSAGE_MAX_LEN+1];
 
 TCPClient client;
 
@@ -56,26 +30,9 @@ String clevernet_findNthSubstring(const String &message, const String &delimiter
     return String("");
 }
 
-void clevernet_announceDevice(){
-    clevernet_sendStringUDP(String("@shout:") + String(deviceName) + String(":;"), clevernet_broadcastAddress);
-    last_device_announcement = millis();
-}
-
-void clevernet_sendStringUDP(String message, IPAddress &remote) {
-    if (!clevernet_udp_begin) {
-        //We need to listen at so&me port because begin() requires us to specify a listening port
-        clevernet_Udp.begin(clevernet_broadcastPort);
-        clevernet_udp_begin = true;
-    }
-    clevernet_Udp.sendPacket(message, message.length(), remote, clevernet_broadcastPort);
-}
 
 void clevernet_MDNS_loop() {
     clevernet_mdns.processQueries();
-    if (millis() > last_device_announcement + device_announce_interval)
-    {
-        clevernet_announceDevice();
-    }
 }
 
 bool clevernet_setupMDNS() {
@@ -93,115 +50,78 @@ bool clevernet_setupMDNS() {
     return success;
 }
 
-
-//Receive on all connected channels
-bool clevernet_recvString(String &message, IPAddress &source)
-{
-    if (clevernet_recvStringTCP(message, source))
-    {
-        //Received TCP Message
-        return true;
-    } else if (clevernet_recvStringUDP(message, source))
-    {
-        //Received TCP Message
-        return true;
-    }
-    return false;
-}
-
 void clevernet_setupNetwork()
 {
   clevernet_setupMDNS();
-  clevernet_broadcastAddress = clevernet_getBroadcastAddress();
 }
 
-void clevernet_connectTCPClient(IPAddress &remote)
+IPAddress clevernet_getBroadcastAddress() {
+ 
+        IPAddress localIP;
+        IPAddress broadcastIP;
+        IPAddress netmask;
+
+        localIP = WiFi.localIP();
+        netmask = WiFi.subnetMask();
+
+        for (int idx = 0; idx < 4; idx++) {
+            broadcastIP[idx] = localIP[idx] | ~netmask[idx];
+        }
+
+        return broadcastIP;
+}
+
+
+
+CleverNet::CleverNet()
 {
-    if (!client.connected())
+    for (int i=0; i < CLEVERNET_MAX_NODES; i++)
     {
-        Log.info(String("Connecting to ")+String(remote));
-        client.connect(remote, clevernet_broadcastPort+1);
+        nodes[i].remote = invalid_address;
     }
 }
 
-
-bool clevernet_sendStringTCP(String message) {
-    static long last_log = 0;
-    if (client.connected()) {
-        const uint8_t *msg_str = (const uint8_t *) message.c_str();
-        client.write(msg_str, message.length(), SEND_TIMEOUT );
-        return true;
-    } else {
-        if (millis() > last_log + 500)
-        {
-            Log.info("Not connected, can't send");
-            last_log = millis();
-        }
-    }
-    return false;
-}
-
-bool clevernet_sendString(String message) {
-    bool retVal = false;
-
-    retVal = clevernet_sendStringTCP(message);
-   
-    return retVal;
-}
-
-bool clevernet_recvStringTCP(String &message, IPAddress &source)
+bool CleverNet::process(String &message, String &node_name, IPAddress &source)
 {
-    int c;
-    if (client.connected()) {
-        while (client.available())
+    if (!setup_complete)
+    {
+      clevernet_broadcastAddress = clevernet_getBroadcastAddress();
+      setup_complete = true;
+    }
+
+    if (millis() > last_device_announcement + device_announce_interval)
+    {
+        announceDevice();
+    }
+
+    if (recvString(message, node_name, source))
+    {
+        Log.info("Message received");
+        if (message.indexOf(clevernet_cmd_shout) == 1)
         {
-          c = client.read();
-          if (tcp_recv_state == RECV_STATE_NEW || tcp_recv_state == RECV_STATE_ONGOING )
-          {
-            if (tcp_recv_state == RECV_STATE_NEW && c == '@') 
-            {
-                //Log.info("Start marker found");
-                tcp_recv_state = RECV_STATE_ONGOING;        
-                tcp_recv_buffer_idx = 0;
-            }
-                
-            if (c >= 0 && tcp_recv_state == RECV_STATE_ONGOING)
-            {
-                    if (tcp_recv_buffer_idx > MESSAGE_MAX_LEN)
-                    {
-                        tcp_recv_state == RECV_STATE_ERROR;
-                    }
-                    else {
-                        tcp_recv_buffer[tcp_recv_buffer_idx] = (char)c;
-                        tcp_recv_buffer_idx ++;
-                        if (c == ';') {
-                            //Log.info("End marker found");
-                            //Message end marker found
-                            tcp_recv_buffer[tcp_recv_buffer_idx] = 0;
-                            tcp_recv_state = RECV_STATE_FINISHED;
-                        }
-                    }
-                }
-            }
-            
-            if (tcp_recv_state == RECV_STATE_FINISHED) {
-               tcp_recv_state = RECV_STATE_NEW;
-               message.remove(0);
-               message += String(tcp_recv_buffer);
-               source = client.remoteIP();
-               return true;
-            }
-            if (tcp_recv_state == RECV_STATE_ERROR)
-            {
-                tcp_recv_state = RECV_STATE_NEW;
-            }
+            String name = clevernet_findNthSubstring(message, String(":"),0);
+            Log.info (name + " is at address " + String(source));
+            addNode(node_name, source);
         }
+        return true;
     }
     return false;
 }
 
+CleverNet::~CleverNet()
+{
+    /* Disconnect from all nodes */
+    for (int i=0; i < CLEVERNET_MAX_NODES; i++)
+    {
+        if (nodes[i].connection.connected())
+        {
+            nodes[i].connection.stop();
+        }
+    }
+}
 
-bool clevernet_recvStringUDP(String &message, IPAddress &source)
+
+bool CleverNet::recvStringUDP(String &message, IPAddress &source)
 {
     int c;
     if (clevernet_Udp.parsePacket() > 0) {
@@ -254,20 +174,176 @@ bool clevernet_recvStringUDP(String &message, IPAddress &source)
 
 
 
-
-IPAddress clevernet_getBroadcastAddress() {
- 
-        IPAddress localIP;
-        IPAddress broadcastIP;
-        IPAddress netmask;
-
-        localIP = WiFi.localIP();
-        netmask = WiFi.subnetMask();
-
-        for (int idx = 0; idx < 4; idx++) {
-            broadcastIP[idx] = localIP[idx] | ~netmask[idx];
+bool CleverNet::recvStringTCP(clevernet_node *node, String &message, IPAddress &source)
+{
+    int c;
+    if (node->connection.connected()) {
+        while (node->connection.available())
+        {
+          c = node->connection.read();
+          if (node->tcp_recv_state == RECV_STATE_NEW || node->tcp_recv_state == RECV_STATE_ONGOING )
+          {
+            if (node->tcp_recv_state == RECV_STATE_NEW && c == '@') 
+            {
+                //Log.info("Start marker found");
+                node->tcp_recv_state = RECV_STATE_ONGOING;        
+                node->tcp_recv_buffer_idx = 0;
+            }
+                
+            if (c >= 0 && node->tcp_recv_state == RECV_STATE_ONGOING)
+            {
+                    if (node->tcp_recv_buffer_idx > MESSAGE_MAX_LEN)
+                    {
+                        node->tcp_recv_state == RECV_STATE_ERROR;
+                    }
+                    else {
+                        node->tcp_recv_buffer[node->tcp_recv_buffer_idx] = (char)c;
+                        node->tcp_recv_buffer_idx ++;
+                        if (c == ';') {
+                            //Log.info("End marker found");
+                            //Message end marker found
+                            node->tcp_recv_buffer[node->tcp_recv_buffer_idx] = 0;
+                            node->tcp_recv_state = RECV_STATE_FINISHED;
+                        }
+                    }
+                }
+            }
+            
+            if (node->tcp_recv_state == RECV_STATE_FINISHED) {
+               node->tcp_recv_state = RECV_STATE_NEW;
+               message.remove(0);
+               message += String(node->tcp_recv_buffer);
+               source = node->connection.remoteIP();
+               return true;
+            }
+            if (node->tcp_recv_state == RECV_STATE_ERROR)
+            {
+                node->tcp_recv_state = RECV_STATE_NEW;
+            }
         }
+    }
+    return false;
+}
 
-        return broadcastIP;
+bool CleverNet::sendStringTCP(clevernet_node *node, String &message) {
+    static long last_log = 0;
+    if (!node->connection.connected()) {
+        connectTCPClient(node->name);
+    }
+
+    if (node->connection.connected()) {
+        const uint8_t *msg_str = (const uint8_t *) message.c_str();
+        node->connection.write(msg_str, message.length(), SEND_TIMEOUT );
+        return true;
+    } else {
+        if (millis() > last_log + 500)
+        {
+            Log.info("Not connected, can't send");
+            last_log = millis();
+        }
+    }
+    return false;
+}
+
+bool CleverNet::sendString(String node_name, String message) {
+    bool retVal = false;
+
+    clevernet_node *node = getNodeByName(node_name);
+    if (node)
+    {
+        retVal = sendStringTCP(node, message);
+    }
+   
+    return retVal;
+}
+
+clevernet_node *CleverNet::getNodeByName(const String &name )
+{
+    clevernet_node *retVal = nullptr;
+    for (int i=0; i < node_count; i++)
+    {
+        if (nodes[i].name.compareTo(name) == 0)
+        {
+            retVal = &nodes[i];
+            break;
+        }
+    }
+    return retVal;
+}
+
+void CleverNet::sendStringUDP(const String &message, IPAddress &remote) {
+    if (!clevernet_udp_begin) {
+        //We need to listen at so&me port because begin() requires us to specify a listening port
+        clevernet_Udp.begin(clevernet_broadcastPort);
+        clevernet_udp_begin = true;
+    }
+    clevernet_Udp.sendPacket(message, message.length(), remote, clevernet_broadcastPort);
+}
+
+void CleverNet::announceDevice(){
+    if (setup_complete)
+    {
+        sendStringUDP(String("@shout:") + String(deviceName) + String(":;"), clevernet_broadcastAddress);
+        last_device_announcement = millis();
+    }
+}
+
+void CleverNet::connectTCPClient(const String &node_name)
+{
+    clevernet_node *node = getNodeByName(node_name);
+    if (node)
+    {
+        if (!node->connection.connected() && !(node->remote == invalid_address))
+        {
+            Log.info(String("Connecting to ")+String(node->remote));
+            node->connection.connect(node->remote, clevernet_broadcastPort+1);
+        }
+    }
+}
+
+//Receive on all connected channels
+bool CleverNet::recvString(String &message, String &node_name, IPAddress &source)
+{
+    for (int i=0; i < node_count; i++)
+    {
+        if (recvStringTCP(&nodes[i], message, source))
+        {
+            node_name = nodes[i].name;
+            //Received TCP Message
+            return true;
+        }
+    }
+    
+    //If no node has a message for us, check for broadcasts
+    if (recvStringUDP(message, source))
+    {
+        Log.info("UDP Message received");
+
+        node_name = "";
+        //Received TCP Message
+        return true;
+    }
+
+    return false;
+}
+
+
+bool CleverNet::addNode(String node_name, IPAddress remote) {
+    bool retVal = false;
+    clevernet_node *node = getNodeByName(node_name);
+    if (node)
+    {
+        Log.info("Node exists");
+    }
+    else if (node_count < CLEVERNET_MAX_NODES) {
+        Log.info("Add node");
+        nodes[node_count].name = node_name;
+        nodes[node_count].remote = remote;
+        node_count ++;
+        retVal = true;
+    } else {
+        Log.info("Max nodes reached");
+    }
+    return retVal;
 }
 

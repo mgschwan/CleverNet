@@ -96,11 +96,10 @@ bool CleverNet::process(String &message, String &node_name, IPAddress &source)
 
     if (recvString(message, node_name, source))
     {
-        Log.info("Message received");
         if (message.indexOf(clevernet_cmd_shout) == 1)
         {
-            String name = clevernet_findNthSubstring(message, String(":"),0);
-            Log.info (name + " is at address " + String(source));
+            node_name = clevernet_findNthSubstring(message, String(":"),0);
+            Log.info (node_name + " is at address " + String(source));
             addNode(node_name, source);
         }
         return true;
@@ -132,7 +131,6 @@ bool CleverNet::recvStringUDP(String &message, IPAddress &source)
           {
             if (udp_recv_state == RECV_STATE_NEW && c == '@') 
             {
-                Log.info("Start marker found");
                 udp_recv_state = RECV_STATE_ONGOING;        
                 udp_recv_buffer_idx = 0;
             }
@@ -147,7 +145,6 @@ bool CleverNet::recvStringUDP(String &message, IPAddress &source)
                         udp_recv_buffer[udp_recv_buffer_idx] = (char)c;
                         udp_recv_buffer_idx ++;
                         if (c == ';') {
-                            Log.info("End marker found");
                             //Message end marker found
                             udp_recv_buffer[udp_recv_buffer_idx] = 0;
                             udp_recv_state = RECV_STATE_FINISHED;
@@ -185,7 +182,6 @@ bool CleverNet::recvStringTCP(clevernet_node *node, String &message, IPAddress &
           {
             if (node->tcp_recv_state == RECV_STATE_NEW && c == '@') 
             {
-                //Log.info("Start marker found");
                 node->tcp_recv_state = RECV_STATE_ONGOING;        
                 node->tcp_recv_buffer_idx = 0;
             }
@@ -200,7 +196,6 @@ bool CleverNet::recvStringTCP(clevernet_node *node, String &message, IPAddress &
                         node->tcp_recv_buffer[node->tcp_recv_buffer_idx] = (char)c;
                         node->tcp_recv_buffer_idx ++;
                         if (c == ';') {
-                            //Log.info("End marker found");
                             //Message end marker found
                             node->tcp_recv_buffer[node->tcp_recv_buffer_idx] = 0;
                             node->tcp_recv_state = RECV_STATE_FINISHED;
@@ -252,6 +247,8 @@ bool CleverNet::sendString(String node_name, String message) {
     if (node)
     {
         retVal = sendStringTCP(node, message);
+    } else {
+        Log.info(String("Can't send message, node ") + node_name + String ( " not found"));
     }
    
     return retVal;
@@ -317,8 +314,6 @@ bool CleverNet::recvString(String &message, String &node_name, IPAddress &source
     //If no node has a message for us, check for broadcasts
     if (recvStringUDP(message, source))
     {
-        Log.info("UDP Message received");
-
         node_name = "";
         //Received TCP Message
         return true;
@@ -333,10 +328,10 @@ bool CleverNet::addNode(String node_name, IPAddress remote) {
     clevernet_node *node = getNodeByName(node_name);
     if (node)
     {
-        Log.info("Node exists");
+        //Log.info("Node exists");
     }
     else if (node_count < CLEVERNET_MAX_NODES) {
-        Log.info("Add node");
+        Log.info(String("Add node ") + node_name);
         nodes[node_count].name = node_name;
         nodes[node_count].remote = remote;
         node_count ++;

@@ -5,7 +5,7 @@
 
 
 const char* ssid = "YOURNETWORK";  //Put your SSID here
-const char* password = "*************";  //Put your Wifi Password here
+const char* password = /*secretbegin*/ "*************" /*secretend*/;  //Put your Wifi Password here
 const char* system_name = "cleverpet_button";
 
 bool system_ready = false;
